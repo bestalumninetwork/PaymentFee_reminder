@@ -1,249 +1,236 @@
+//Lisf of Email tamplates using IDs
+const oneMonthBeforeEmailTemplate = "1UgxbOAh17WJDNu5S_bJLQuEyrsCtI-9rMNus8cUWj8g";
+const oneWeekBeforeEmailTemplate = "1jqcRSXiPwr_QRb82ElMq1MzkMWzmAgTxEZTzTywPEAM";
+// let dayofEnd = "1g2YztdUe-jlsb0Z-0ezZqXdmWVz_JiDsx3wq35a7-Qg";
+const stripeoneWeekBeforeEmailTemplate = "17d_893dkwmyrCadQvVBaTxT8U_dnEX3nCgraE9rPkW8";
+const membersSpreadSheetId = '1oc3GR89Mw5E78re_er_BXK7KWncrJX9oo4VxYVRCB6M'; // members spreadsheet
+const WARNINGS_ADDRESS = 'miriam.mazzeo@bestalumni.net';//TODO change after testing
+const ACTIVE_MEMBERS_ORG_UNIT = '/A1 - Current Members';
+const secondWelcomeEmailTemplate = '1quITAdZW0v3ErbC1rz3P2n1Svq-vHlzBy8j51tOwc04';
+const thirdWelcomeEmailTemplate = '1PZTnEy8RikiaWduoBR_nx1YtCOc7Eg6mWKJwA7EoiEs';
+
+
 /**
- * This function retrieves all payments from the payment spreadsheet and returns them as an array of the rows.
- * @returns: payment data from the payments spreadsheet as a list of rows
- */
-function getPaymentData() {
+ * Gets payment information from the MemberList spreadsheet, returns an array of all the rows.
+ * @returns: members data from the MemberList spreadsheet as a list of rows
+ * Source: https://developers.google.com/sheets/api/quickstart/apps-script
+*/
+function getMembersData() {
 
-    var LOGGING_PREFIX = '[getPaymentData] ';
+  var LOGGING_PREFIX = '[getMembersData] \t';
 
-    Logger.log(LOGGING_PREFIX + 'started');
+  Logger.log(LOGGING_PREFIX + 'started');
 
-    /*
-    get all payments from the spreadsheet app
-    Source: https://developers.google.com/sheets/api/quickstart/apps-script
-    */
-    // var paymentSpreadSheetId = '1ZwZXK1KcAVIeOh-FgFZKPEOEFwUTaJzDExaWD1ZIQmc'; // new spreadsheet with payments
-    var paymentSpreadSheetId = '13YSSxKWzS8khlm_oMfDNcDCsW6SgVtjNJlA1q8zpoTI'; // original membership spreadsheet
-    var dataRange = 'List of members!A2:W'; // <SHEET_NAME>!<RANGE_START>:<RANGE_END>
-    var payments = Sheets.Spreadsheets.Values.get(paymentSpreadSheetId, dataRange).values;
+  //Url of the Membership spreadsheet (in future if spreadsheet changes, update only the url)
+  //let url = "https://docs.google.com/spreadsheets/d/13YSSxKWzS8khlm_oMfDNcDCsW6SgVtjNJlA1q8zpoTI/edit#gid=0";
+  //retrieve the id of the spreadsheet from the url
+  //const membersSpreadSheetId = url.match("/spreadsheets/d/([a-zA-Z0-9-_]+)")[1];
 
-    if (!payments) {
-        Logger.log(LOGGING_PREFIX + 'no payment data found in spreadsheet.') // TODO: error
-    }
+  var dataRange = "'List of members'!A2:Y"; // <SHEET_NAME>!<RANGE_START>:<RANGE_END>
+  var members = Sheets.Spreadsheets.Values.get(membersSpreadSheetId, dataRange).values;
 
-    Logger.log(LOGGING_PREFIX + 'payment data retrieved from spreadsheet.');
+  if (!members) {
+      Logger.log(LOGGING_PREFIX + 'no payment data found in spreadsheet.') 
+  }
+  Logger.log(LOGGING_PREFIX + 'payment data retrieved from spreadsheet.');
 
-    return payments;
+  return members;
 }
 
+
+
 /**
- * This method returns the last validity date (column N) from the payments spreadsheet for a given user.
- * @param user: user object from the google admin directory
- * @param payments: payment data from the payments spreadsheet as a list of rows
- * @returns: date up to which the account is valid
- */
-function getAccountValidityEndDate(user, payments) {
+  * This function checks which BAN member's accounts expire in one month
+  * It is run periodically by a trigger.
+*/
+function mainfunc() {
 
-    var LOGGING_PREFIX = '[getAccountValidityEndDate] ';
+  var LOGGING_PREFIX = '[main] ';
 
-    // Logger.log(LOGGING_PREFIX + 'started');
+  Logger.log(LOGGING_PREFIX + 'Started');
 
-    var validityEndDate = null;
+  // Getting all payments from the google spreadsheet in tablearray
+  var payments = getMembersData();
 
-    try {
-        var userId = user.externalIds[0].value; // User ID used to identify the payments associated to this user
-    } catch (error) {
-        Logger.log(LOGGING_PREFIX + 'Cannot get ID from user: ' + JSON.stringify(user));
-        return;
-    }
+  /*
+  Go through all users of the G Suite Directory
+  Documentation on Admin Directory
+  - quick start guide: https://developers.google.com/admin-sdk/directory/v1/quickstart/apps-script
+  - developers guide:  https://developers.google.com/admin-sdk/directory/v1/guides/guides
+  - api reference:     https://developers.google.com/admin-sdk/directory/v1/reference
+  - code snippet:      https://developers.google.com/apps-script/advanced/admin-sdk-directory#list_all_users
+  */
+  //TODO what happened to the email quota parameter?
 
-    if (!payments) {
-        Logger.log(LOGGING_PREFIX + 'No payment data given!');
-    } else {
+  //TODO TAKE USERS ONLY FROM A1
+  var optionalArgs = {
+    customer: 'my_customer',
+    orderBy: 'email',
+    query: "orgUnitPath='/A1 - Current Members'"
+  };
 
-        for (var row = 0; row < payments.length; row++) {
-            if (payments[row][0] == userId) {
-                if (validityEndDate === null || validityEndDate < payments[row][13]) { // 'N' i.e. 'End of Membership' is column 13
-                    validityEndDate = payments[row][13];
-                    // Logger.log(LOGGING_PREFIX + 'Updated validity end date for user ' + user.name.fullName + ' [' + userId + '] to ' + payments[row][12]); // todo: remove after tesing
-                }
-            }
+  var response = AdminDirectory.Users.list(optionalArgs);
+  var users = response.users;
+
+  // check for every user if his account expires in the next month.
+  var today = new Date();
+  today.setHours(0,0,0,0); // at midnight
+
+  var oneMonthFromNow = new Date();
+  oneMonthFromNow.setMonth(oneMonthFromNow.getMonth() + 1);
+  oneMonthFromNow.setHours(0,0,0,0); // at midnight
+
+  var oneDayFromNow = new Date();
+  oneDayFromNow.setDate(oneDayFromNow.getDate()+1);
+  oneDayFromNow.setHours(0,0,0,0); // at midnight
+
+  var oneWeekFromNow = new Date();
+  oneWeekFromNow.setDate(oneWeekFromNow.getDate()+7);
+  oneWeekFromNow.setHours(0,0,0,0); // at midnight
+  
+
+  var error_accounts = []; // List of accounts that can not be evaluated by the script for one reason or another
+  var expired_accounts = []; // List of Users who's accounts have expired
+  var reminded_accounts = []; // List of Users that have been reminded of their upcoming membership renewal
+
+  //var ACTIVE_MEMBERS_ORG_UNIT = "/B1 - External people";
+  //var INACTIVE_MEMBERS_ORG_UNIT = "/T1 - Test OU"; 
+  var DEACTIVATED_MEMBERS_ORG_UNIT =  "/A3 - Deactivated members";
+  var ACTIVE_MEMBERS_ORG_UNIT = '/A1 - Current Members';
+  var INACTIVE_MEMBERS_ORG_UNIT = '/A2 - Members to be deactivated';
+
+  if (users && users.length > 0) {
+    Logger.log(LOGGING_PREFIX + users.length + ' users found.');
+    for (let user of users) {
+
+      //GET USER's CREATION DATE
+      let userCreationDate = new Date(user.creationTime);
+      //userCreationDate = new Date('20/05/2021')//TODO REMOVE AFTER TESTING
+      userCreationDate.setHours(0,0,0,0); // at midnight
+      let daysBetweenCreationAndToday = Math.abs(Math.ceil((userCreationDate.getTime() - today.getTime())/(1000 * 3600 * 24)));
+
+      if (!userCreationDate || userCreationDate==-1) {
+        Logger.log(LOGGING_PREFIX + 'No creation date found for user ' + user.name.fullName + ' [' + userId + '].');
+        error_accounts.push(user.primaryEmail.toString());// add user email to errors count
+        continue; 
+        //The continue statement breaks one iteration (in the loop), if a condition occurs and continues with the next iteration in the loop.
+      }
+
+      //SEND SET OF EMAILS TO NEW USERS
+      if (daysBetweenCreationAndToday<=21){
+        if(daysBetweenCreationAndToday == 7){
+          Logger.log(LOGGING_PREFIX + 'Date of user creation: ' + userCreationDate + '. The second WELCOME email template is being sent.');
+          //email template 2 after 1 week since subscription
+          sendMembershipRenewalEMail(user, validityEndDate, secondWelcomeEmailTemplate)
         }
-    }
-
-    if (validityEndDate === null) {
-        Logger.log(LOGGING_PREFIX + 'No validity end date found for user ' + user.name.fullName + ' [' + userId + '].');
-    }
-
-    return validityEndDate;
-
-}
-
-/** 
- * This functions changes the format of a date string from 18.09.2013 to 2013-09-18
- */
-function reformatDateString(dateStr) {
-
-    var LOGGING_PREFIX = 'reformatDateString';
-
-    var elements = dateStr.split('.');
-    if (elements.length !== 3) {
-        Logger.log(LOGGING_PREFIX + 'Invalid date ' + String(dateStr) + '.');
-        return;
-    }
-
-    elements = elements.reverse();
-
-    return elements.join('-');
-}
-
-/**
- * If the number of e-mails that can be send by the script drops below 20 (there is a maximum email quota set by google script), the admins will be informed.
- */
-function checkDailyEMailQuota() {
-
-    var LOGGING_PREFIX = 'checkDailyEMailQuota';
-
-    var emailQuotaRemaining = MailApp.getRemainingDailyQuota();
-    Logger.log(LOGGING_PREFIX + 'Remaining email quota: ' + emailQuotaRemaining); // todo: remove after testing
-
-    if (emailQuotaRemaining < 21) {
-        MailApp.sendEmail('admin@bestalumni.net', 'Warning E-Mail Quota Limit', 'The google app script "check for upcoming renewal" will soon reach its E-Mail quota limit!');
-        // Todo: refactor this, so that the email addresses of membres that could not have an email send to will be logged and included in the message.
-    }
-
-}
-
-/**
- * This function sends out an e-mail if a users account is about to expire.
- * @param user: user object from the google admin directory
- * @param validityEndDate: Date Object
- */
-function sendMembershipRenewalEMail(user, validityEndDate) {
-
-    var LOGGING_PREFIX = 'sendMembershipRenewalEMail';
-
-    checkDailyEMailQuota();
-
-    var validityEndString = Utilities.formatDate(validityEndDate, 'CET', 'dd/MM/yyyy');
-
-    // checking the users secondary e-mail address
-    var secondaryEmailAddress = user.recoveryEmail;
-    if (secondaryEmailAddress == '') {
-        for (var i = 0; i < user.emails.length; i++) {
-            if ((user.emails[i].address != user.primaryEmail) && !user.emails[i].address.includes('@bestalumni.net')){
-                secondaryEmailAddress = user.emails[i].address; 
-            }
+        if (daysBetweenCreationAndToday == 21){
+          Logger.log(LOGGING_PREFIX + 'Date of user creation: ' + userCreationDate + '. The third WELCOME email template is being sent.');
+          //email template 3 after 3 weeks since subscription
+          sendMembershipRenewalEMail(user, validityEndDate, thirdWelcomeEmailTemplate)
         }
-    }
 
-    var recipient = user.primaryEmail;
-    var subject = 'BEST Alumni Network - Renew your membership !';
-    var content = makeRenewalEMailContent(user.name.fullName, validityEndString);
-    var options = {
-        'cc': secondaryEmailAddress,
-        'bcc': 'admin@bestalumni.net',
-        'replyTo': 'membership@bestalumni.net'
-    };
-
-    MailApp.sendEmail(recipient, subject, content, options);
-
-}
-
-/**
- * This functions sends a summary to admin@bestalumni.net at the end of this scripts execution
- * @param error_accounts
- */
-function sendSummaryEMail(error_accounts, expired_accounts, reminded_accounts) {
-
-    var LOGGING_PREFIX = 'sendSummaryEMail';
-
-    checkDailyEMailQuota();
-
-    var recipient = 'admin@bestalumni.net,filip.schlembach@bestalumni.net';
-    var subject = 'Membership renewal summary';
-    var content = makeSummaryEMailContent(error_accounts, expired_accounts, reminded_accounts);
-
-    MailApp.sendEmail(recipient, subject, content);
-
-}
-
-/**
- * This function checks which BAN member's accounts expire in one month
- * It is run periodically by a trigger.
- */
-function main() {
-
-    var LOGGING_PREFIX = '[main] ';
-
-    Logger.log(LOGGING_PREFIX + 'started');
-
-    /*
-    Running a Google App Script periodically:
-    Edit -> Current projects triggers
-    */
-
-    // Getting all payments from the google spreadsheet
-    var payments = getPaymentData();
-
-    /*
-    Go through all users of the G Suite Directory
-    Documentation on Admin Directory
-    - quick start guide: https://developers.google.com/admin-sdk/directory/v1/quickstart/apps-script
-    - developers guide:  https://developers.google.com/admin-sdk/directory/v1/guides/guides
-    - api reference:     https://developers.google.com/admin-sdk/directory/v1/reference
-    - code snippet:      https://developers.google.com/apps-script/advanced/admin-sdk-directory#list_all_users
-    */
-    var optionalArgs = {
-        customer: 'my_customer',
-        maxResults: 500, // TODO: this could cause a problem in the future, when BAN gets more than 500 members. How to handle that?
-        orderBy: 'email'
-    };
+      }
 
 
-    var response = AdminDirectory.Users.list(optionalArgs);
-    var users = response.users;
+      //GET VALIDITY END DATE IN THE PAYMENTS SPREADSHEET
+      try {
+        var [validityEndDateStr, stripe] = getAccountValidityEndDate(user, payments);
+      } catch(error){
+        error_accounts.push(user.primaryEmail.toString());// add user email to errors count
+        continue;
+      }
+      
 
-    // check for every user if his account expires in the next month.
-    var today = new Date();
-    var oneMonthFromNow = new Date();
-    oneMonthFromNow.setMonth(oneMonthFromNow.getMonth() + 1);
+      //TODO I donno if needed (Miriam)
+      if(user.orgUnitPath =! ACTIVE_MEMBERS_ORG_UNIT){
+        error_accounts.push(user.primaryEmail.toString());// add user email to errors count
+        continue;
+      }
 
-    var error_accounts = []; // List of accounts that can not be evaluated by the script for one reason or another
-    var expired_accounts = []; // List of Users who's accounts have expired
-    var reminded_accounts = []; // List of Users that have been reminded of their upcoming membership renewal
+      //CREATE DATE-VARIABLE FROM STRING OF VALIDITY END DATE (OR ACCOUNT'S EXPIRATION DATE) 
+      let validityEndDate = new Date(reformatDateString(validityEndDateStr));
+      validityEndDate.setHours(0,0,0,0); // set time at midnight
 
-    // Logger.log(LOGGING_PREFIX + 'today = ' + Utilities.formatDate(today, 'CET', 'yyyy-MM-dd')); // TODO: remove after testing.
-    // Logger.log(LOGGING_PREFIX + 'oneMonthFromNow = ' + Utilities.formatDate(oneMonthFromNow, 'CET', 'yyyy-MM-dd')); // TODO: remove after testing.
+      // CHANGE FORMATTING OF validityEndDate FOR COMPARISON
+      let formatedValidityDate1 = Utilities.formatDate(validityEndDate, 'CET', 'dd.MM.yyyy');
+      let formatedValidityDate2 = Utilities.formatDate(validityEndDate, 'CET', 'yyyy-MM-dd');
 
-    if (users && users.length > 0) {
-        Logger.log(LOGGING_PREFIX + users.length + ' users found.');
-        for (i = 0; i < users.length; i++) {
-            var user = users[i];
+      //CALCULATE NUMBER OF DAYS BETWEEN TODAY AND VALIDITY END DATE
+      let daysBetweenTodayAndExpiring = Math.ceil((validityEndDate.getTime() - today.getTime())/(1000 * 3600 * 24));
 
-            // Get the date until when the account is valid accourding to the payment spreadsheet.
-            var validityEndDateStr = getAccountValidityEndDate(user, payments);
-            if (!validityEndDateStr) {
-                Logger.log(LOGGING_PREFIX + 'Could not detemine date of validity for ' + user.primaryEmail + '.');
-                error_accounts.push(user.primaryEmail.toString());
-                continue;
-            }
-            var validityEndDate = new Date(reformatDateString(validityEndDateStr));
+      ////////////DEACTIVATE the account if the validity end date is in the past 
+      
+      if (validityEndDate.getTime() < today.getTime()&& user.orgUnitPath ==  ACTIVE_MEMBERS_ORG_UNIT ) {
+        Logger.log(LOGGING_PREFIX + user.primaryEmail + '´s account is already expired on the: ' + formatedValidityDate2);
 
-            // Logger.log(LOGGING_PREFIX + user.primaryEmail + '´s account expiration date: ' + Utilities.formatDate(validityEndDate, 'CET', 'yyyy-MM-dd')); // TODO: remove after testing.
-
-            // deactivate the account if the validity end date is in the past
-            if (validityEndDate.getTime() < today.getTime()) {
-                Logger.log(LOGGING_PREFIX + user.primaryEmail + '´s account is already expired: ' + Utilities.formatDate(validityEndDate, 'CET', 'yyyy-MM-dd')); // TODO: remove after testing.
-                expired_accounts.push(user.primaryEmail.toString() + ' ' + Utilities.formatDate(validityEndDate, 'CET', 'dd.MM.yyyy'));
-                // TODO: deactivate account if that has not already happened?
-                // TODO: add one week of buffer to process payments,...
-
-                // send a reminder E-Mail if the account expires today in one month.
-            } else if (Utilities.formatDate(validityEndDate, 'CET', 'yyyy-MM-dd') == Utilities.formatDate(oneMonthFromNow, 'CET', 'yyyy-MM-dd')) {
-                Logger.log(LOGGING_PREFIX + user.primaryEmail + '´s account will expire today in one month: ' + Utilities.formatDate(validityEndDate, 'CET', 'yyyy-MM-dd')); // TODO: remove after testing.
-
-                // send an e-mail to the user if his / her account will expire in one month
-                sendMembershipRenewalEMail(user, validityEndDate);
-                reminded_accounts.push(user.primaryEmail.toString() + ' ' + Utilities.formatDate(validityEndDate, 'CET', 'dd.MM.yyyy'));
-
-            }
-
+        //FIND INDEX ROW of the user in Members' spreadsheet by matching external ID 
+        var indexOfRowInMembersList = findUserInMembersList(user, membersSpreadSheetId );
+        
+        //DEFINE DAYS OF BUFFER FOR DEACTIVATION AND INACTIVATION
+        const deactivationBufferDays = 90;
+        const inactivationBufferDays = 7;
+        
+        //DEACTIVATE USER IF EXPIRED SINCE MORE THAN 3 MONTHS (90 DAYS)
+        if( -daysBetweenTodayAndExpiring >= deactivationBufferDays){
+        Logger.log(LOGGING_PREFIX +"Validity end date set: "+validityEndDate + "and daysBetweenTodayAndExpiring: "+ daysBetweenTodayAndExpiring + ". Member is deactiveted.");
+        user.orgUnitPath = DEACTIVATED_MEMBERS_ORG_UNIT;
+        // update members spreadsheet, cellRange corresponds to column Q = 'Status' and the row corresponding to the used id
+        updateValue( 'Q'+indexOfRowInMembersList, 'Excluded',membersSpreadSheetId);
         }
-    } else {
-        // logToSlack('No users found.', LOGGING_SOURCE_NAME);
+
+        //INACTIVATE USER IF EXPIRED SINCE MORE THAN A WEEK
+        else if(-daysBetweenTodayAndExpiring >= inactivationBufferDays){
+        Logger.log(LOGGING_PREFIX +"Validity end date set: "+validityEndDate + "and daysBetweenTodayAndExpiring: "+ daysBetweenTodayAndExpiring + ". Member is inactivated.");
+        user.orgUnitPath = INACTIVE_MEMBERS_ORG_UNIT;
+
+        // UPDATE MEMBERS' SPREADSHEET
+        //update the cellRange corresponding to column Q = 'Status' and the row corresponding to the used id
+        updateValue( 'Q'+indexOfRowInMembersList, 'Suspended',membersSpreadSheetId);
+
+        // CROSS ROW IN MEMBERS' SPREADSHEET
+        //https://developers.google.com/apps-script/reference/spreadsheet/range
+        strikethrough(membersSpreadSheetId,sheetName="List of members", cellRange='A'+indexOfRowInMembersList+':U'+indexOfRowInMembersList )
+        }
+
+        //add member to list of expired accound 
+        expired_accounts.push(user.primaryEmail.toString() + ' ' + formatedValidityDate1);
+
+        AdminDirectory.Users.update(user,user.id); 
+      } 
+
+      ////////////SEND REMINDER if the validity end date is in a month or less from today
+
+      else if (daysBetweenTodayAndExpiring<=31){
+
+        // SEND REMINDER IF ACCOUNT EXPIRES IN 1 MONTH (NO STRIPE SUBSCRIPTION)
+        if (formatedValidityDate2 == Utilities.formatDate(oneMonthFromNow, 'CET', 'yyyy-MM-dd')&& !stripe) {
+          Logger.log(LOGGING_PREFIX + user.primaryEmail + '´s account will expire one month from now: ' + formatedValidityDate2+". A reminder has been sent."); // TODO: remove
+          sendMembershipRenewalEMail(user, validityEndDate,oneMonthBeforeEmailTemplate);
+          reminded_accounts.push(user.primaryEmail.toString() + ' ' + formatedValidityDate1);
+        } 
+
+        // SEND REMINDER IF ACCOUNT EXPIRES IN 1 WEEK (NO STRIPE SUBSCRIPTION)
+        else if (formatedValidityDate2 == Utilities.formatDate(oneWeekFromNow, 'CET', 'yyyy-MM-dd') && !stripe) {
+          Logger.log(LOGGING_PREFIX + user.primaryEmail + '´s account will expire tomorrow: ' + formatedValidityDate2+". A reminder has been sent."); // TODO: remove
+          sendMembershipRenewalEMail(user, validityEndDate,oneWeekBeforeEmailTemplate);
+          reminded_accounts.push(user.primaryEmail.toString() + ' ' + formatedValidityDate1);
+        } 
+
+        // SEND REMINDER IF ACCOUNT EXPIRES IN 1 WEEK AND GET RENEWED WITH STRIPE SUBSCRIPTION
+        else if (formatedValidityDate2 == Utilities.formatDate(oneWeekFromNow, 'CET', 'yyyy-MM-dd')&& stripe) {
+          Logger.log(LOGGING_PREFIX + user.primaryEmail + '´s account will be renewed by Stripe in one week: ' + formatedValidityDate2+". A reminder has been sent."); // TODO: remove 
+          sendMembershipRenewalEMail(user, validityEndDate,stripeoneWeekBeforeEmailTemplate);
+          reminded_accounts.push(user.primaryEmail.toString() + ' STRIPE ' + formatedValidityDate1);
+        }
+      }
+
     }
+  } else 
+  {
+    Logger.log("[MAIN]--- No users found");
+  }
 
-    sendSummaryEMail(error_accounts, expired_accounts, reminded_accounts);
-
+  sendSummaryEMail(error_accounts, expired_accounts, reminded_accounts);
+   
 }
+

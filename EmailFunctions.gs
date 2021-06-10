@@ -1,3 +1,37 @@
+/**
+ * Fetches a Google Doc as an HTML string.
+ * @param {string} docId - The ID of a Google Doc to fetch content from.
+ * @return {string} The Google Doc rendered as an HTML string.
+ */
+function makeRenewalEMailContent(memberName, validityEndDate, docId) {
+   if (!docId) {
+    throw "Please call this API with a valid Google Doc ID";
+  }
+    Logger.log("Fetching and parsing fresh html from the doc...");
+
+    try {
+      var doc = DriveApp.getFileById(docId);
+    } catch (err) {
+      throw "Please call the [docToHtml] function with a valid Google Doc ID. " + err.message;
+    }
+  
+    var url = "https://docs.google.com/feeds/download/documents/export/Export?id=" + docId + "&exportFormat=html";
+    var param = {
+      method: "get",
+      headers: {"Authorization": "Bearer " + ScriptApp.getOAuthToken()},
+      muteHttpExceptions:true,
+    };
+
+    var html = UrlFetchApp.fetch(url, param).getContentText();
+    html.replace("{{name}}",memberName);
+    html.replace("{{endDate}}",validityEndDate);
+
+  return html;
+}
+
+
+//To be removed
+/*
 function makeRenewalEMailContent(memberName, validityEndString) {
 
   var content = 'Dear ' + memberName + ',\n\n';
@@ -18,7 +52,9 @@ function makeRenewalEMailContent(memberName, validityEndString) {
   return content;
 
 }
+*/
 
+//To be removed after being placed in a the doc Tamplate.
 function makeSummaryEMailContent(error_accounts, expired_accounts, reminded_accounts) {
 
     var content = 'Summary e-mail for the membership renewal script.\n\n';
